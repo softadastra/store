@@ -22,13 +22,24 @@ target_compile_features(softadastra_store PUBLIC cxx_std_20)
 # ========================
 # Dependencies
 # ========================
-if(NOT TARGET softadastra_wal)
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../wal build_wal)
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/.vix/vix_deps.cmake)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/.vix/vix_deps.cmake)
+endif()
+
+if(NOT TARGET softadastra::wal)
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/../wal/CMakeLists.txt)
+        add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../wal build_wal)
+    else()
+        message(FATAL_ERROR
+            "softadastra::wal not found. "
+            "Install dependencies with Vix or provide ../wal in the monorepo."
+        )
+    endif()
 endif()
 
 target_link_libraries(softadastra_store
     PUBLIC
-        softadastra_wal
+        softadastra::wal
 )
 
 # ========================
