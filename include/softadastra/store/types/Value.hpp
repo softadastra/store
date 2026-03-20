@@ -10,7 +10,6 @@
 
 namespace softadastra::store::types
 {
-
   /**
    * @brief Value stored in the store
    *
