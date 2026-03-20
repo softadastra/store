@@ -1,0 +1,13 @@
+{
+  "dependencies": [
+    {
+      "commit": "8051639a6787a993bf2e5e2583d7131ccc432891",
+      "hash": "3a5a6bcc626e2543d99e63995ab7fe7293162d35d8280c9de4448b7c8d80e84e",
+      "id": "softadastra/wal",
+      "repo": "https://github.com/softadastra/wal",
+      "tag": "v0.2.0",
+      "version": "0.2.0"
+    }
+  ],
+  "lockVersion": 1
+}
