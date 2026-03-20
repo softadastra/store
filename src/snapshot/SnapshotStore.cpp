@@ -1,1 +1,1 @@
-#include <softadastra/store/persistence/SnapshotStore.hpp>
+#include <softadastra/store/snapshot/SnapshotStore.hpp>

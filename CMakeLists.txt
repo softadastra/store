@@ -17,21 +17,17 @@ option(SOFTADASTRA_STORE_BUILD_EXAMPLES "Build store examples" ON)
 # ========================
 add_library(softadastra_store)
 
-# C++ standard
 target_compile_features(softadastra_store PUBLIC cxx_std_20)
 
 # ========================
 # Dependencies
 # ========================
-# Core
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../core build_core)
-
-# WAL (brings FS transitively)
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../wal build_wal)
+if(NOT TARGET softadastra_wal)
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../wal build_wal)
+endif()
 
 target_link_libraries(softadastra_store
     PUBLIC
-        softadastra_core
         softadastra_wal
 )
 
@@ -48,6 +44,7 @@ target_include_directories(softadastra_store
 # Sources
 # ========================
 file(GLOB_RECURSE STORE_SOURCES
+    CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
 )
 
@@ -59,7 +56,7 @@ target_sources(softadastra_store
 # ========================
 # Compiler options
 # ========================
-if (MSVC)
+if(MSVC)
     target_compile_options(softadastra_store PRIVATE /W4 /permissive-)
 else()
     target_compile_options(softadastra_store PRIVATE -Wall -Wextra -Wpedantic)
@@ -80,14 +77,14 @@ add_library(softadastra::store ALIAS softadastra_store)
 # ========================
 # Examples
 # ========================
-if (SOFTADASTRA_STORE_BUILD_EXAMPLES)
+if(SOFTADASTRA_STORE_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 
 # ========================
 # Tests
 # ========================
-if (SOFTADASTRA_STORE_BUILD_TESTS)
+if(SOFTADASTRA_STORE_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
