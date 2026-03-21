@@ -246,7 +246,8 @@ The store is not about files.
 ## Installation
 
 ```bash
-vix add @softadastra/fs
+vix add @softadastra/store
+vix deps
 ```
 
 ## License

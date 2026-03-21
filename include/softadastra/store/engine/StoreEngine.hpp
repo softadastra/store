@@ -5,22 +5,19 @@
 #ifndef SOFTADASTRA_STORE_ENGINE_HPP
 #define SOFTADASTRA_STORE_ENGINE_HPP
 
-#include <unordered_map>
-#include <optional>
-#include <memory>
 #include <ctime>
+#include <memory>
+#include <optional>
+#include <unordered_map>
 
-#include <softadastra/store/core/Operation.hpp>
 #include <softadastra/store/core/Entry.hpp>
+#include <softadastra/store/core/Operation.hpp>
 #include <softadastra/store/core/StoreConfig.hpp>
-
-#include <softadastra/store/encoding/OperationEncoder.hpp>
 #include <softadastra/store/encoding/OperationDecoder.hpp>
-
+#include <softadastra/store/encoding/OperationEncoder.hpp>
 #include <softadastra/store/engine/ApplyResult.hpp>
-
-#include <softadastra/wal/writer/WalWriter.hpp>
 #include <softadastra/wal/replay/WalReplayer.hpp>
+#include <softadastra/wal/writer/WalWriter.hpp>
 
 namespace softadastra::store::engine
 {
@@ -50,7 +47,7 @@ namespace softadastra::store::engine
     }
 
     /**
-     * PUT
+     * @brief Insert or update a key with a locally generated timestamp
      */
     ApplyResult put(const types::Key &key, const types::Value &value)
     {
@@ -60,11 +57,11 @@ namespace softadastra::store::engine
       op.value = value;
       op.timestamp = now();
 
-      return apply_with_wal(op);
+      return apply_operation(op);
     }
 
     /**
-     * DELETE
+     * @brief Remove a key with a locally generated timestamp
      */
     ApplyResult remove(const types::Key &key)
     {
@@ -73,17 +70,31 @@ namespace softadastra::store::engine
       op.key = key;
       op.timestamp = now();
 
-      return apply_with_wal(op);
+      return apply_operation(op);
     }
 
     /**
-     * GET
+     * @brief Apply an externally provided operation as-is
+     *
+     * This is the correct entry point for remote sync operations,
+     * replay-like flows, or any caller that must preserve the
+     * original operation timestamp.
+     */
+    ApplyResult apply_operation(const core::Operation &op)
+    {
+      return append_and_apply(op);
+    }
+
+    /**
+     * @brief Get current entry by key
      */
     std::optional<core::Entry> get(const types::Key &key) const
     {
       auto it = index_.find(key.value);
       if (it == index_.end())
+      {
         return std::nullopt;
+      }
 
       return it->second;
     }
@@ -98,9 +109,11 @@ namespace softadastra::store::engine
           record.payload.size());
 
       if (!op)
+      {
         return;
+      }
 
-      apply(*op, record.sequence);
+      apply_to_memory(*op, record.sequence);
     }
 
     /**
@@ -113,17 +126,14 @@ namespace softadastra::store::engine
 
   private:
     /**
-     * Apply with WAL (critical path)
+     * @brief Append operation to WAL if enabled, then apply to memory
      */
-    ApplyResult apply_with_wal(core::Operation &op)
+    ApplyResult append_and_apply(const core::Operation &op)
     {
-      ApplyResult result;
-
       std::uint64_t version = 0;
 
       if (writer_)
       {
-        // encode operation → payload
         auto payload = encoding::OperationEncoder::encode(op);
 
         wal::core::WalRecord record;
@@ -134,15 +144,13 @@ namespace softadastra::store::engine
         version = writer_->append(record);
       }
 
-      result = apply(op, version);
-
-      return result;
+      return apply_to_memory(op, version);
     }
 
     /**
-     * Apply to in-memory state
+     * @brief Apply operation to in-memory state
      */
-    ApplyResult apply(const core::Operation &op, std::uint64_t version)
+    ApplyResult apply_to_memory(const core::Operation &op, std::uint64_t version)
     {
       ApplyResult result;
       result.success = true;
@@ -162,7 +170,7 @@ namespace softadastra::store::engine
           entry.version = version;
           entry.timestamp = op.timestamp;
 
-          index_[op.key.value] = entry;
+          index_[op.key.value] = std::move(entry);
           result.created = true;
         }
         else
@@ -195,26 +203,29 @@ namespace softadastra::store::engine
     }
 
     /**
-     * WAL recovery
+     * @brief Recover state from WAL
      */
     void recover()
     {
       wal_replay::WalReplayer replayer(config_.wal_path);
 
-      replayer.replay([&](const wal::core::WalRecord &record)
-                      {
-        auto op = encoding::OperationDecoder::decode(
-            record.payload.data(),
-            record.payload.size());
+      replayer.replay(
+          [&](const wal::core::WalRecord &record)
+          {
+              auto op = encoding::OperationDecoder::decode(
+                  record.payload.data(),
+                  record.payload.size());
 
-        if (!op)
-          return;
+              if (!op)
+              {
+                return;
+              }
 
-        apply(*op, record.sequence); });
+              apply_to_memory(*op, record.sequence); });
     }
 
     /**
-     * simple timestamp
+     * @brief Simple timestamp source for local operations
      */
     static std::uint64_t now()
     {
@@ -223,9 +234,7 @@ namespace softadastra::store::engine
 
   private:
     core::StoreConfig config_;
-
     std::unordered_map<std::string, core::Entry> index_;
-
     std::unique_ptr<wal_writer::WalWriter> writer_;
   };
 
