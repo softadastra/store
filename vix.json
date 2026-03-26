@@ -1,7 +1,7 @@
 {
   "name": "store",
   "namespace": "softadastra",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "library",
   "include": "include",
   "license": "MIT",
@@ -43,7 +43,7 @@
   "deps": [
     {
       "id": "softadastra/wal",
-      "version": "0.6.0"
+      "version": "0.8.0"
     }
   ]
 }
