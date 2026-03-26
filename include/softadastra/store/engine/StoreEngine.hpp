@@ -124,6 +124,28 @@ namespace softadastra::store::engine
       return index_;
     }
 
+    /**
+     * @brief Recover state from WAL
+     */
+    void recover()
+    {
+      wal_replay::WalReplayer replayer(config_.wal_path);
+
+      replayer.replay(
+          [&](const wal::core::WalRecord &record)
+          {
+              auto op = encoding::OperationDecoder::decode(
+                  record.payload.data(),
+                  record.payload.size());
+
+              if (!op)
+              {
+                return;
+              }
+
+              apply_to_memory(*op, record.sequence); });
+    }
+
   private:
     /**
      * @brief Append operation to WAL if enabled, then apply to memory
@@ -200,28 +222,6 @@ namespace softadastra::store::engine
       }
 
       return result;
-    }
-
-    /**
-     * @brief Recover state from WAL
-     */
-    void recover()
-    {
-      wal_replay::WalReplayer replayer(config_.wal_path);
-
-      replayer.replay(
-          [&](const wal::core::WalRecord &record)
-          {
-              auto op = encoding::OperationDecoder::decode(
-                  record.payload.data(),
-                  record.payload.size());
-
-              if (!op)
-              {
-                return;
-              }
-
-              apply_to_memory(*op, record.sequence); });
     }
 
     /**
