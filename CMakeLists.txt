@@ -1,25 +1,30 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(softadastra_store
-    VERSION 0.1.0
-    DESCRIPTION "Softadastra Store - Key-value engine with WAL"
-    LANGUAGES CXX
-)
+if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+    project(softadastra_store
+        VERSION 0.1.0
+        DESCRIPTION "Softadastra Store - Key-value engine with WAL"
+        LANGUAGES CXX
+    )
+endif()
 
 include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
 # ========================
-# Options
+# Standalone fallback options
 # ========================
-option(SOFTADASTRA_STORE_BUILD_TESTS "Build store tests" OFF)
+if(NOT DEFINED SOFTADASTRA_WARNINGS_AS_ERRORS)
+    option(SOFTADASTRA_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
+endif()
+
+if(SOFTADASTRA_UMBRELLA_BUILD)
+    set(SOFTADASTRA_STORE_BUILD_TESTS ${SOFTADASTRA_BUILD_TESTS})
+else()
+    option(SOFTADASTRA_STORE_BUILD_TESTS "Build store tests" OFF)
+endif()
+
 option(SOFTADASTRA_STORE_BUILD_EXAMPLES "Build store examples" OFF)
-
-# ========================
-# Global settings
-# ========================
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ========================
 # Dependencies
@@ -86,8 +91,14 @@ target_include_directories(softadastra_store
 # ========================
 if(MSVC)
     target_compile_options(softadastra_store PRIVATE /W4 /permissive-)
+    if(SOFTADASTRA_WARNINGS_AS_ERRORS)
+        target_compile_options(softadastra_store PRIVATE /WX)
+    endif()
 else()
     target_compile_options(softadastra_store PRIVATE -Wall -Wextra -Wpedantic)
+    if(SOFTADASTRA_WARNINGS_AS_ERRORS)
+        target_compile_options(softadastra_store PRIVATE -Werror)
+    endif()
 endif()
 
 # ========================
@@ -95,9 +106,52 @@ endif()
 # ========================
 set_target_properties(softadastra_store PROPERTIES
     OUTPUT_NAME softadastra_store
-    VERSION ${PROJECT_VERSION}
+    VERSION 0.1.0
     SOVERSION 0
     EXPORT_NAME store
+)
+
+# ========================
+# Install
+# ========================
+install(
+    TARGETS softadastra_store
+    EXPORT softadastraStoreTargets
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(
+    DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(
+    EXPORT softadastraStoreTargets
+    FILE softadastraStoreTargets.cmake
+    NAMESPACE softadastra::
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/softadastra_store"
+)
+
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/softadastra_storeConfigVersion.cmake"
+    VERSION 0.1.0
+    COMPATIBILITY SameMajorVersion
+)
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/softadastra_storeConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/softadastra_storeConfig.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/softadastra_store"
+)
+
+install(
+    FILES
+        "${CMAKE_CURRENT_BINARY_DIR}/softadastra_storeConfig.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/softadastra_storeConfigVersion.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/softadastra_store"
 )
 
 # ========================
@@ -127,10 +181,12 @@ endif()
 # Summary
 # ========================
 message(STATUS "------------------------------------------------------")
-message(STATUS "softadastra::store configured (${PROJECT_VERSION})")
+message(STATUS "softadastra::store configured (0.1.0)")
 message(STATUS "WAL target:      ${SOFTADASTRA_STORE_WAL_TARGET}")
 message(STATUS "Include dir:     ${CMAKE_CURRENT_SOURCE_DIR}/include")
 message(STATUS "Build tests:     ${SOFTADASTRA_STORE_BUILD_TESTS}")
 message(STATUS "Build examples:  ${SOFTADASTRA_STORE_BUILD_EXAMPLES}")
+message(STATUS "Warnings=error:  ${SOFTADASTRA_WARNINGS_AS_ERRORS}")
 message(STATUS "Build type:      ${CMAKE_BUILD_TYPE}")
+message(STATUS "Install prefix:  ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "------------------------------------------------------")
