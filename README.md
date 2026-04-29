@@ -1,255 +1,614 @@
 # softadastra/store
 
-> Content storage layer for local-first systems.
+> WAL-backed key-value store for local-first systems.
 
-The `store` module is responsible for **managing the actual data (file contents)** in Softadastra.
+`softadastra/store` is the materialized state layer of Softadastra.
 
-It handles:
+It provides a simple key-value store backed by a durable Write-Ahead Log.
 
-> How data is stored, retrieved, and materialized on disk.
+The core rule is:
+
+> Persist first. Apply after.
 
 ## Purpose
 
-The goal of `softadastra/store` is simple:
+The store module turns durable operations into current application state.
 
-> Store and retrieve file content reliably, independently from how it is observed or synchronized.
+It is designed for local-first systems that must survive:
 
-## Core Principle
+- process crashes
+- restarts
+- network failures
+- offline periods
+- interrupted synchronization
+- replay-based recovery
 
-> Separate data from observation.
+The store keeps an in-memory index for fast reads and uses the WAL for durability.
 
-* `fs` observes files
-* `store` manages their content
+## What this module does
 
-## Responsibilities
+`softadastra/store` provides:
 
-The `store` module provides:
+- binary-safe key-value entries
+- logical store operations
+- operation encoding and decoding
+- in-memory materialized state
+- WAL-backed persistence
+- deterministic recovery from WAL
+- snapshot building from WAL
 
-* Storage of file content (blobs)
-* Reading and writing file data
-* Materializing files on disk
-* Preparing for chunk-based storage (future)
+## What this module does not do
 
-## What this module does NOT do
+This module does not implement:
 
-* No filesystem observation (fs module)
-* No sync logic (sync module)
-* No network communication (transport module)
-* No operation durability (wal module)
+- networking
+- peer-to-peer sync
+- conflict resolution
+- distributed consensus
+- filesystem watching
+- long-term database indexing
 
-👉 It manages content only.
+It stores and replays local state changes.
+
+Higher-level modules handle synchronization and conflict policies.
 
 ## Design Principles
 
-### 1. Content-centric
+### Local-first
 
-The module focuses on:
+The store can apply operations locally and recover them later from WAL.
 
-* Bytes
-* Blobs
-* Data representation
+### Durable
 
-Not on file events or sync decisions.
+When WAL is enabled, mutations are persisted before being applied to memory.
 
-### 2. Decoupled from filesystem
+### Deterministic
 
-Even if it writes to disk:
+Replaying the same WAL produces the same materialized state.
 
-* It does not observe filesystem changes
-* It does not emit events
+### Binary-safe
 
-### 3. Extensible
+Values are raw bytes.
 
-Must support future evolution:
+The store does not interpret them.
 
-* Chunking
-* Deduplication
-* Compression
+### Simple API
 
-### 4. Deterministic
+The public API is intentionally small:
 
-Same input → same stored output.
+```cpp
+store.put(key, value);
+store.get(key);
+store.remove(key);
+store.recover();
+```
 
 ## Module Structure
 
-```id="st0r3x"
-modules/store/
-├── include/softadastra/store/
-│   ├── BlobStore.hpp
-│   ├── LocalStore.hpp
-│   ├── Chunker.hpp
-│   └── FileMaterializer.hpp
-└── src/
+```
+include/softadastra/store/
+├── core/
+│   ├── Entry.hpp
+│   ├── Operation.hpp
+│   └── StoreConfig.hpp
+├── encoding/
+│   ├── OperationDecoder.hpp
+│   └── OperationEncoder.hpp
+├── engine/
+│   ├── ApplyResult.hpp
+│   └── StoreEngine.hpp
+├── index/
+│   ├── IndexEntry.hpp
+│   └── InMemoryIndex.hpp
+├── snapshot/
+│   ├── SnapshotBuilderStore.hpp
+│   └── SnapshotStore.hpp
+├── types/
+│   ├── Key.hpp
+│   ├── OperationType.hpp
+│   └── Value.hpp
+└── utils/
+    └── Serializer.hpp
 ```
 
-## Core Components
+## Installation
 
-### BlobStore
+```
+vix add @softadastra/store
+```
 
-Abstract interface.
+## Core Types
 
-Provides:
+### Key
 
-* Store data
-* Retrieve data
-* Identify content (hash-based)
+Key identifies an entry in the store.
 
-### LocalStore
+```cpp
+store::types::Key key{"user:1"};
 
-Concrete implementation using local disk.
+if (key.is_valid())
+{
+  auto raw = key.str();
+}
+```
 
-Responsibilities:
+A valid key must not be empty.
 
-* Store blobs as files
-* Manage local storage layout
+### Value
 
-### Chunker
+Value stores binary-safe bytes.
 
-Prepares for:
+```cpp
+auto value =
+    store::types::Value::from_string("Gaspard");
+```
 
-* Splitting large files into chunks
-* Deduplication (future)
+Or from raw bytes:
 
-### FileMaterializer
+```cpp
+auto value =
+    store::types::Value::from_bytes({1, 2, 3});
+```
 
-Responsible for:
+### Operation
 
-* Reconstructing files from stored data
-* Writing files to the filesystem
+Operation describes a logical mutation.
 
-## Example Usage
+```cpp
+auto op = store::core::Operation::put(
+    store::types::Key{"user:1"},
+    store::types::Value::from_string("Gaspard"));
+```
 
-```cpp id="ex10"
+Delete operation:
+
+```cpp
+auto op = store::core::Operation::remove(
+    store::types::Key{"user:1"});
+```
+
+### Entry
+
+Entry is the materialized state of a key.
+
+It contains:
+
+- key
+- value
+- version
+- timestamp
+
+The version usually maps to the WAL sequence that produced the entry.
+
+## Basic Usage
+
+```cpp
 #include <softadastra/store/engine/StoreEngine.hpp>
 
-using namespace softadastra::store;
+using namespace softadastra;
 
 int main()
 {
-  core::StoreConfig config;
-  config.wal_path = "data/store.log";
+  store::engine::StoreEngine engine{
+      store::core::StoreConfig::durable("data/store.wal")};
 
-  engine::StoreEngine store(config);
+  auto result = engine.put(
+      store::types::Key{"user:1"},
+      store::types::Value::from_string("Gaspard"));
 
-  // Create key
-  types::Key key;
-  key.value = "message";
-
-  // Create value
-  types::Value value;
-  value.data = {'H','e','l','l','o'};
-
-  // PUT
-  auto res = store.put(key, value);
-
-  if (!res.success)
-    return 1;
-
-  // GET
-  auto entry = store.get(key);
-
-  if (entry)
+  if (result.is_err())
   {
-    std::string content(entry->value.data.begin(), entry->value.data.end());
-    std::cout << content << "\n";
+    return 1;
+  }
+
+  auto entry = engine.get(store::types::Key{"user:1"});
+
+  if (!entry.has_value())
+  {
+    return 1;
   }
 
   return 0;
 }
 ```
 
-## Data Flow
+## Store Configuration
 
-### Write
+### Durable mode
 
-1. Sync receives operation
-2. Store saves content
-3. Metadata updated
-4. File materialized (optional)
+Use this for production.
 
-### Read
+```cpp
+auto config =
+    store::core::StoreConfig::durable("data/store.wal");
+```
 
-1. Request for file content
-2. Store retrieves blob
-3. File reconstructed if needed
+This enables:
 
-## Integration
+- WAL persistence
+- automatic flush
+- durable operation ordering
 
-Used by:
+### Fast mode
 
-* sync (primary)
-* metadata (indirectly)
-* app layer
+Use this for tests or benchmarks.
 
-## Storage Model
+```cpp
+auto config =
+    store::core::StoreConfig::fast("data/store.wal");
+```
 
-### Blob-based
+This keeps WAL enabled but disables automatic flush.
 
-Content is stored as:
+### Memory-only mode
 
-* Immutable blobs
-* Identified by hash
+Use this for temporary state or tests.
 
-### File materialization
+```cpp
+auto config =
+    store::core::StoreConfig::memory_only();
+```
 
-Files can be:
+This disables WAL persistence.
 
-* Reconstructed from blobs
-* Written to filesystem
+## Put
+
+```cpp
+auto result = engine.put(
+    store::types::Key{"user:1"},
+    store::types::Value::from_string("Gaspard"));
+
+if (result.is_ok())
+{
+  auto apply = result.value();
+
+  if (apply.created)
+  {
+    // new entry
+  }
+
+  if (apply.updated)
+  {
+    // existing entry replaced
+  }
+}
+```
+
+## Get
+
+```cpp
+auto entry = engine.get(
+    store::types::Key{"user:1"});
+
+if (entry.has_value())
+{
+  auto value = entry->value.to_string();
+}
+```
+
+## Remove
+
+```cpp
+auto result = engine.remove(
+    store::types::Key{"user:1"});
+
+if (result.is_ok())
+{
+  auto apply = result.value();
+
+  if (apply.deleted)
+  {
+    // entry removed
+  }
+
+  if (apply.is_noop())
+  {
+    // key did not exist
+  }
+}
+```
+
+Delete is idempotent. Removing a missing key returns a successful no-op.
+
+## Apply External Operation
+
+Use apply_operation() when the caller already has an operation and wants to preserve its timestamp.
+
+```cpp
+auto op = store::core::Operation::put(
+    store::types::Key{"user:1"},
+    store::types::Value::from_string("Gaspard"));
+
+auto result = engine.apply_operation(op);
+```
+
+This is useful for:
+
+- remote sync operations
+- replay-like flows
+- imported operation streams
+- deterministic tests
+
+## Recovery
+
+When WAL is enabled, StoreEngine attempts recovery during construction.
+
+You can also call recovery explicitly:
+
+```cpp
+auto result = engine.recover();
+
+if (result.is_err())
+{
+  return 1;
+}
+```
+
+Recovery flow:
+
+1. Read WAL records
+2. Decode store operations
+3. Apply operations in WAL order
+4. Rebuild in-memory state
+5. Restore writer sequence
+
+## Reading Entries
+
+```cpp
+for (const auto &[key, entry] : engine.entries())
+{
+  // key is std::string
+  // entry is store::core::Entry
+}
+```
+
+Helpers:
+
+- engine.size();
+- engine.empty();
+- engine.contains(store::types::Key{"user:1"});
+
+## Operation Encoding
+
+Store operations can be encoded into stable binary payloads.
+
+```cpp
+auto op = store::core::Operation::put(
+    store::types::Key{"user:1"},
+    store::types::Value::from_string("Gaspard"));
+
+auto payload =
+    store::encoding::OperationEncoder::encode(op);
+```
+
+Decode:
+
+```cpp
+auto decoded =
+    store::encoding::OperationDecoder::decode(payload);
+
+if (!decoded)
+{
+  return 1;
+}
+```
+
+## Operation Binary Format
+
+Current operation payload format: version 1.
+
+```
+uint8  version
+uint8  operation_type
+uint32 key_size
+bytes  key
+uint32 value_size
+bytes  value
+int64  timestamp_millis
+```
+
+All integer values are encoded in little-endian order.
+
+## WAL Integration
+
+When WAL is enabled, store operations are encoded and appended to the WAL before being applied.
+
+```
+Operation
+  -> OperationEncoder
+  -> WAL payload
+  -> WalWriter
+  -> StoreEngine apply
+```
+
+The WAL sequence becomes the store entry version.
+
+## Snapshot Store
+
+SnapshotStore stores a point-in-time key-value view.
+
+```cpp
+store::snapshot::SnapshotStore snapshot;
+
+snapshot.put(
+    store::types::Key{"user:1"},
+    store::types::Value::from_string("Gaspard"));
+```
+
+Read:
+
+```cpp
+auto value = snapshot.get(
+    store::types::Key{"user:1"});
+
+if (value)
+{
+  auto text = value->to_string();
+}
+```
+
+## Build Snapshot from WAL
+
+```cpp
+auto result =
+    store::snapshot::SnapshotBuilderStore::build("data/store.wal");
+
+if (result.is_err())
+{
+  return 1;
+}
+
+auto snapshot = std::move(result.value());
+```
+
+This replays WAL records into a temporary memory-only store and exports the final state as a SnapshotStore.
+
+## Error Handling
+
+The store API uses softadastra::core::types::Result.
+
+Example:
+
+```cpp
+auto result = engine.put(
+    store::types::Key{"user:1"},
+    store::types::Value::from_string("Gaspard"));
+
+if (result.is_err())
+{
+  const auto &error = result.error();
+}
+```
+
+Public operations return errors instead of throwing for normal failures.
+
+## ApplyResult
+
+ApplyResult describes what happened after applying an operation.
+
+```cpp
+if (apply.created)
+{
+  // created
+}
+
+if (apply.updated)
+{
+  // updated
+}
+
+if (apply.deleted)
+{
+  // deleted
+}
+
+if (apply.is_noop())
+{
+  // no state mutation
+}
+```
+
+The result also includes:
+
+- apply.version;
+- apply.success;
+
+## Serializer Utilities
+
+Serializer provides small deterministic helpers.
+
+```cpp
+std::vector<std::uint8_t> out;
+
+store::utils::Serializer::append_u32(out, 42);
+store::utils::Serializer::append_i64(out, 123456);
+```
+
+Read:
+
+```cpp
+std::size_t offset = 0;
+std::uint32_t value = 0;
+
+auto ok = store::utils::Serializer::read_u32(
+    std::span<const std::uint8_t>(out.data(), out.size()),
+    offset,
+    value);
+```
+
+## Recommended Write Flow
+
+1. Build Operation
+2. Encode Operation
+3. Append payload to WAL
+4. Receive WAL sequence
+5. Apply operation to memory
+6. Use WAL sequence as entry version
+
+This ensures the state can be rebuilt after restart.
+
+## Production Notes
+
+Use durable mode for production:
+
+```cpp
+auto config =
+    store::core::StoreConfig::durable("data/store.wal");
+```
+
+Use memory-only mode only for temporary or test state:
+
+```cpp
+auto config =
+    store::core::StoreConfig::memory_only();
+```
+
+For high-throughput workloads, batching and snapshot compaction can be added later without changing the basic user-facing API.
+
+## Rules
+
+- Persist before apply
+- Keep operation payloads deterministic
+- Treat WAL sequence as the materialized version
+- Do not interpret Value bytes inside the store core
+- Use recover() to rebuild state after restart
+- Use snapshots for compacted point-in-time state
 
 ## Dependencies
 
 ### Internal
 
-* softadastra/core
+- softadastra/core
+- softadastra/wal
 
 ### External
 
-* Filesystem APIs
-
-## MVP Scope
-
-* Full file storage (no chunking yet)
-* Simple local disk layout
-* No deduplication
-* No compression
+- C++20 standard library
 
 ## Roadmap
 
-* Chunk-based storage
-* Deduplication
-* Compression
-* Content-addressable storage
-* Remote storage support
-* Versioned storage
-
-## Rules
-
-* Never depend on filesystem events
-* Never include sync logic
-* Never mutate stored blobs
-* Always treat data as immutable
-
-## Philosophy
-
-The store is not about files.
-
-> It is about data.
+- Snapshot compaction
+- Segment-aware snapshot building
+- Persistent index backend
+- Batched writes
+- Atomic snapshot export
+- Store metrics
+- Optional typed value helpers
 
 ## Summary
 
-* Stores file content
-* Retrieves data
-* Supports file reconstruction
-* Decoupled from sync and fs
+softadastra/store is the WAL-backed materialized state layer of Softadastra.
 
-## Installation
+It provides:
 
-```bash
-vix add @softadastra/store
-vix deps
-```
+- simple key-value operations
+- binary-safe values
+- WAL-backed durability
+- deterministic recovery
+- snapshot building
+- local-first state management
 
-## License
+Its job is simple:
 
-See root LICENSE file.
+turn durable operations into recoverable state.
+
