@@ -73,24 +73,6 @@ namespace softadastra::store::snapshot
     }
 
     /**
-     * @brief Inserts or replaces a value.
-     *
-     * Invalid keys are ignored.
-     *
-     * @param key Store key.
-     * @param value Value to store.
-     */
-    void put(const types::Key &key, const types::Value &value)
-    {
-      if (!key.is_valid())
-      {
-        return;
-      }
-
-      data_[key.str()] = value;
-    }
-
-    /**
      * @brief Inserts or replaces a value by move.
      *
      * Invalid keys are ignored.

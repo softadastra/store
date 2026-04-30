@@ -164,6 +164,19 @@ namespace softadastra::store::utils
     }
 
     /**
+     * @brief Appends an unsigned 16-bit integer in little-endian order.
+     */
+    static void append_u16(
+        std::vector<std::uint8_t> &out,
+        std::uint16_t value)
+    {
+      for (std::uint8_t i = 0; i < 2; ++i)
+      {
+        out.push_back(static_cast<std::uint8_t>((value >> (i * 8)) & 0xFFU));
+      }
+    }
+
+    /**
      * @brief Appends an unsigned 32-bit integer in little-endian order.
      */
     static void append_u32(
@@ -219,6 +232,35 @@ namespace softadastra::store::utils
 
       value = data[offset];
       ++offset;
+      return true;
+    }
+
+    /**
+     * @brief Reads an unsigned 16-bit little-endian integer.
+     *
+     * @param data Input bytes.
+     * @param offset Current offset, updated on success.
+     * @param value Output value.
+     * @return true on success.
+     */
+    [[nodiscard]] static bool read_u16(
+        std::span<const std::uint8_t> data,
+        std::size_t &offset,
+        std::uint16_t &value) noexcept
+    {
+      if (!can_read(data, offset, 2))
+      {
+        return false;
+      }
+
+      value = 0;
+
+      for (std::uint8_t i = 0; i < 2; ++i)
+      {
+        value |= static_cast<std::uint16_t>(data[offset + i]) << (i * 8);
+      }
+
+      offset += 2;
       return true;
     }
 
