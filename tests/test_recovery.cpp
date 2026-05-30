@@ -3,28 +3,35 @@
  */
 
 #include <cassert>
+#include <cstdio>
 #include <iostream>
+#include <string>
+#include <fstream>
 
+#include <softadastra/store/core/StoreConfig.hpp>
 #include <softadastra/store/engine/StoreEngine.hpp>
 #include <softadastra/store/snapshot/SnapshotBuilderStore.hpp>
 #include <softadastra/store/types/Key.hpp>
 #include <softadastra/store/types/Value.hpp>
-#include <softadastra/store/core/StoreConfig.hpp>
 
 using namespace softadastra;
 
-static store::types::Value make_value(const std::string &s)
+static store::types::Key key(const std::string &value)
 {
-  store::types::Value v;
-  v.data.assign(s.begin(), s.end());
-  return v;
+  return store::types::Key::from(value);
+}
+
+static store::types::Value make_value(const std::string &value)
+{
+  return store::types::Value::from_string(value);
 }
 
 void test_recovery_basic()
 {
   std::cout << "[test] recovery_basic\n";
 
-  std::string wal_path = "test_wal.log";
+  const std::string wal_path = "test_wal.log";
+  std::remove(wal_path.c_str());
 
   // ========================
   // Phase 1: write data
@@ -37,35 +44,49 @@ void test_recovery_basic()
   {
     store::engine::StoreEngine engine(config);
 
-    engine.put({"user:1"}, make_value("Alice"));
-    engine.put({"user:2"}, make_value("Bob"));
-    engine.put({"user:3"}, make_value("Charlie"));
+    auto r1 = engine.put(key("user:1"), make_value("Alice"));
+    auto r2 = engine.put(key("user:2"), make_value("Bob"));
+    auto r3 = engine.put(key("user:3"), make_value("Charlie"));
+    auto r4 = engine.remove(key("user:2"));
 
-    engine.remove({"user:2"});
+    assert(r1.is_ok());
+    assert(r2.is_ok());
+    assert(r3.is_ok());
+    assert(r4.is_ok());
+
+    assert(r1.value().success);
+    assert(r2.value().success);
+    assert(r3.value().success);
+    assert(r4.value().success);
   }
 
   // ========================
   // Phase 2: recovery
   // ========================
-  auto snapshot = store::snapshot::SnapshotBuilderStore::build(wal_path);
+  auto snapshot_result = store::snapshot::SnapshotBuilderStore::build(wal_path);
+  assert(snapshot_result.is_ok());
+
+  const auto snapshot = snapshot_result.value();
 
   // ========================
   // Assertions
   // ========================
   {
-    auto v1 = snapshot.get({"user:1"});
+    const auto *v1 = snapshot.get(key("user:1"));
     assert(v1 != nullptr);
-    assert(std::string(v1->data.begin(), v1->data.end()) == "Alice");
+    assert(v1->to_string() == "Alice");
 
-    auto v2 = snapshot.get({"user:2"});
+    const auto *v2 = snapshot.get(key("user:2"));
     assert(v2 == nullptr); // deleted
 
-    auto v3 = snapshot.get({"user:3"});
+    const auto *v3 = snapshot.get(key("user:3"));
     assert(v3 != nullptr);
-    assert(std::string(v3->data.begin(), v3->data.end()) == "Charlie");
+    assert(v3->to_string() == "Charlie");
 
     assert(snapshot.size() == 2);
   }
+
+  std::remove(wal_path.c_str());
 
   std::cout << "[ok] recovery_basic\n";
 }
@@ -74,7 +95,8 @@ void test_recovery_overwrite()
 {
   std::cout << "[test] recovery_overwrite\n";
 
-  std::string wal_path = "test_wal_overwrite.log";
+  const std::string wal_path = "test_wal_overwrite.log";
+  std::remove(wal_path.c_str());
 
   store::core::StoreConfig config;
   config.enable_wal = true;
@@ -84,16 +106,29 @@ void test_recovery_overwrite()
   {
     store::engine::StoreEngine engine(config);
 
-    engine.put({"key"}, make_value("v1"));
-    engine.put({"key"}, make_value("v2"));
-    engine.put({"key"}, make_value("v3"));
+    auto r1 = engine.put(key("key"), make_value("v1"));
+    auto r2 = engine.put(key("key"), make_value("v2"));
+    auto r3 = engine.put(key("key"), make_value("v3"));
+
+    assert(r1.is_ok());
+    assert(r2.is_ok());
+    assert(r3.is_ok());
+
+    assert(r1.value().success);
+    assert(r2.value().success);
+    assert(r3.value().success);
   }
 
-  auto snapshot = store::snapshot::SnapshotBuilderStore::build(wal_path);
+  auto snapshot_result = store::snapshot::SnapshotBuilderStore::build(wal_path);
+  assert(snapshot_result.is_ok());
 
-  auto v = snapshot.get({"key"});
+  const auto snapshot = snapshot_result.value();
+
+  const auto *v = snapshot.get(key("key"));
   assert(v != nullptr);
-  assert(std::string(v->data.begin(), v->data.end()) == "v3");
+  assert(v->to_string() == "v3");
+
+  std::remove(wal_path.c_str());
 
   std::cout << "[ok] recovery_overwrite\n";
 }
@@ -102,11 +137,21 @@ void test_recovery_empty()
 {
   std::cout << "[test] recovery_empty\n";
 
-  std::string wal_path = "test_empty.log";
+  const std::string wal_path = "test_empty.log";
+  std::remove(wal_path.c_str());
 
-  auto snapshot = store::snapshot::SnapshotBuilderStore::build(wal_path);
+  {
+    std::ofstream file(wal_path, std::ios::binary);
+    assert(file.good());
+  }
 
+  auto snapshot_result = store::snapshot::SnapshotBuilderStore::build(wal_path);
+  assert(snapshot_result.is_ok());
+
+  const auto snapshot = snapshot_result.value();
   assert(snapshot.empty());
+
+  std::remove(wal_path.c_str());
 
   std::cout << "[ok] recovery_empty\n";
 }
@@ -118,5 +163,6 @@ int main()
   test_recovery_empty();
 
   std::cout << "\nAll recovery tests passed.\n";
+
   return 0;
 }
