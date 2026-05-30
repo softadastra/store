@@ -1,11 +1,18 @@
 {
-  "name": "store",
-  "namespace": "softadastra",
-  "version": "0.11.1",
-  "type": "library",
+  "authors": [
+    {
+      "github": "Gaspardkirira",
+      "name": "Gaspard Kirira"
+    }
+  ],
+  "deps": [
+    {
+      "id": "softadastra/wal",
+      "version": "1.12.3"
+    }
+  ],
+  "description": "Key-value storage primitives for reliable Softadastra state, recovery, and replay.",
   "include": "include",
-  "license": "MIT",
-  "description": "Key-value storage engine for Softadastra built on top of WAL. Provides deterministic state management, indexing, recovery, and replay of operations. Designed for offline-first systems with strong consistency, crash recovery, and efficient read/write performance.",
   "keywords": [
     "softadastra",
     "store",
@@ -33,17 +40,10 @@
     "infrastructure",
     "library"
   ],
+  "license": "MIT",
+  "name": "store",
+  "namespace": "softadastra",
   "repository": "https://github.com/softadastra/store",
-  "authors": [
-    {
-      "name": "Gaspard Kirira",
-      "github": "Gaspardkirira"
-    }
-  ],
-  "deps": [
-    {
-      "id": "softadastra/wal",
-      "version": "1.11.1"
-    }
-  ]
+  "type": "library",
+  "version": "0.12.0"
 }
